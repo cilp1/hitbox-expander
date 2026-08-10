@@ -1,10 +1,12 @@
 --[[
-    HITBOX EXPANDER - Rayfield Version (No Keybind)
-    Auto-enables on load, toggle via UI button only
+    HITBOX EXPANDER - Fully Fixed UI
+    All elements visible, proper sizing, END key to toggle
 ]]
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 if not player then
@@ -19,7 +21,7 @@ local CONFIG = {
     HITBOX_SIZE = Vector3.new(8, 8, 8),
     DEFAULT_SIZE = Vector3.new(2, 2, 1),
     UPDATE_INTERVAL = 0.5,
-    AUTO_ENABLE = true,  -- Auto-enable on load
+    AUTO_ENABLE = true,
 }
 
 -- ─────────────────────────────────────────────
@@ -29,6 +31,10 @@ local hitboxOn = false
 local lastHitboxApply = 0
 local torsoCache = {}
 local hitboxPlayerHooked = false
+local guiVisible = true
+local sg = nil
+local frame = nil
+local isMinimized = false
 
 -- ─────────────────────────────────────────────
 -- HELPERS
@@ -109,12 +115,14 @@ local function hitboxActivate()
         end)
     end
     print("🔴 Hitbox Expander ENABLED")
+    updateStatusText()
 end
 
 local function hitboxDeactivate()
     hitboxOn = false
     setHitboxes(false)
     print("⚪ Hitbox Expander DISABLED")
+    updateStatusText()
 end
 
 local function hitboxRender()
@@ -148,82 +156,304 @@ end)
 RunService.RenderStepped:Connect(hitboxRender)
 
 -- ─────────────────────────────────────────────
--- RAYFIELD UI INTEGRATION
+-- UI REFERENCES
 -- ─────────────────────────────────────────────
-local function createRayfieldUI()
-    local success, Rayfield = pcall(function()
-        return loadstring(game:HttpGet('https://raw.githubusercontent.com/HowDoIGit/Rayfield/main/Module.lua'))()
-    end)
+local toggleBtn = nil
+local statusLabel = nil
+local sizeLabel = nil
+local sizeBox = nil
+local contentFrame = nil
 
-    if not success or not Rayfield then
-        print("⚠️ Rayfield failed to load, but hitbox is still running")
-        return
+local function updateStatusText()
+    if not statusLabel then return end
+    local count = 0
+    for _, other in ipairs(Players:GetPlayers()) do
+        if other ~= player then count = count + 1 end
+    end
+    local status = hitboxOn and "🟢 ACTIVE" or "🔴 INACTIVE"
+    statusLabel.Text = status .. "  •  Players: " .. count .. "  •  Size: " .. CONFIG.HITBOX_SIZE.X
+end
+
+-- ─────────────────────────────────────────────
+-- BUILD CUSTOM UI
+-- ─────────────────────────────────────────────
+local function createUI()
+    local playerGui = player:FindFirstChild("PlayerGui")
+    if not playerGui then
+        playerGui = player:WaitForChild("PlayerGui", 5)
+        if not playerGui then
+            print("⚠️ PlayerGui not found")
+            return
+        end
     end
 
-    local Window = Rayfield:CreateWindow({
-        Name = "Hitbox Expander",
-        LoadingTitle = "Loading...",
-        LoadingSubtitle = "by CAT Shadow",
-        ToggleUIKeybind = "K",
-        Theme = "Dark",
-        KeySystem = false,
-    })
+    sg = Instance.new("ScreenGui")
+    sg.Name = "HitboxExpanderUI"
+    sg.ResetOnSpawn = false
+    sg.IgnoreGuiInset = true
+    sg.Parent = playerGui
 
-    local mainTab = Window:CreateTab("🎯 Hitbox", "sword")
+    -- Main Frame - Fixed size
+    frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 260, 0, 190)
+    frame.Position = UDim2.new(0.5, -130, 0.5, -95)
+    frame.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+    frame.BackgroundTransparency = 0
+    frame.BorderSizePixel = 0
+    frame.ClipsDescendants = true
+    frame.Parent = sg
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
 
-    -- Toggle
-    mainTab:CreateToggle({
-        Name = "Enable Hitbox Expander",
-        CurrentValue = CONFIG.AUTO_ENABLE,
-        Flag = "HitboxToggle",
-        Callback = function(v)
-            if v then
-                hitboxActivate()
-            else
-                hitboxDeactivate()
-            end
+    -- Border
+    local border = Instance.new("UIStroke", frame)
+    border.Color = Color3.fromRGB(60, 60, 80)
+    border.Thickness = 1.2
+
+    -- Title Bar
+    local titleBar = Instance.new("Frame")
+    titleBar.Size = UDim2.new(1, 0, 0, 36)
+    titleBar.Position = UDim2.new(0, 0, 0, 0)
+    titleBar.BackgroundColor3 = Color3.fromRGB(25, 25, 34)
+    titleBar.BackgroundTransparency = 0
+    titleBar.BorderSizePixel = 0
+    titleBar.Parent = frame
+    Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 12)
+
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(0.7, 0, 1, 0)
+    title.Position = UDim2.new(0, 12, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "🎯 Hitbox Expander"
+    title.TextColor3 = Color3.fromRGB(220, 220, 220)
+    title.TextSize = 14
+    title.Font = Enum.Font.GothamBold
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = titleBar
+
+    -- Minimize Button
+    local minBtn = Instance.new("TextButton")
+    minBtn.Size = UDim2.new(0, 26, 0, 26)
+    minBtn.Position = UDim2.new(1, -60, 0.5, -13)
+    minBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+    minBtn.BackgroundTransparency = 0
+    minBtn.BorderSizePixel = 0
+    minBtn.Text = "−"
+    minBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    minBtn.TextSize = 16
+    minBtn.Font = Enum.Font.GothamBold
+    minBtn.Parent = titleBar
+    Instance.new("UICorner", minBtn).CornerRadius = UDim.new(1, 0)
+
+    -- Close Button
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Size = UDim2.new(0, 26, 0, 26)
+    closeBtn.Position = UDim2.new(1, -32, 0.5, -13)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 65)
+    closeBtn.BackgroundTransparency = 0
+    closeBtn.BorderSizePixel = 0
+    closeBtn.Text = "✕"
+    closeBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    closeBtn.TextSize = 13
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.Parent = titleBar
+    Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(1, 0)
+    closeBtn.MouseButton1Click:Connect(function()
+        if sg then sg.Enabled = false end
+        guiVisible = false
+    end)
+
+    -- Content Container
+    contentFrame = Instance.new("Frame")
+    contentFrame.Size = UDim2.new(1, 0, 1, -36)
+    contentFrame.Position = UDim2.new(0, 0, 0, 36)
+    contentFrame.BackgroundTransparency = 1
+    contentFrame.BorderSizePixel = 0
+    contentFrame.Parent = frame
+
+    -- Toggle Button
+    toggleBtn = Instance.new("TextButton")
+    toggleBtn.Size = UDim2.new(0.9, 0, 0, 36)
+    toggleBtn.Position = UDim2.new(0.05, 0, 0, 8)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 220, 100)
+    toggleBtn.BackgroundTransparency = 0
+    toggleBtn.BorderSizePixel = 0
+    toggleBtn.Text = "✅ ENABLED"
+    toggleBtn.TextColor3 = Color3.new(1, 1, 1)
+    toggleBtn.TextSize = 14
+    toggleBtn.Font = Enum.Font.GothamBold
+    toggleBtn.Parent = contentFrame
+    Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 8)
+
+    toggleBtn.MouseButton1Click:Connect(function()
+        hitboxOn = not hitboxOn
+        if hitboxOn then
+            hitboxActivate()
+            toggleBtn.Text = "✅ ENABLED"
+            toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 220, 100)
+        else
+            hitboxDeactivate()
+            toggleBtn.Text = "❌ DISABLED"
+            toggleBtn.BackgroundColor3 = Color3.fromRGB(220, 60, 60)
         end
-    })
+        updateStatusText()
+    end)
 
-    -- Slider for size
-    mainTab:CreateSlider({
-        Name = "Hitbox Size",
-        Range = {1, 20},
-        Increment = 0.5,
-        Suffix = "Studs",
-        CurrentValue = CONFIG.HITBOX_SIZE.X,
-        Flag = "HitboxSize",
-        Callback = function(v)
-            CONFIG.HITBOX_SIZE = Vector3.new(v, v, v)
+    -- Size Row
+    local sizeRow = Instance.new("Frame")
+    sizeRow.Size = UDim2.new(0.9, 0, 0, 34)
+    sizeRow.Position = UDim2.new(0.05, 0, 0, 52)
+    sizeRow.BackgroundTransparency = 1
+    sizeRow.Parent = contentFrame
+
+    sizeLabel = Instance.new("TextLabel")
+    sizeLabel.Size = UDim2.new(0.3, 0, 1, 0)
+    sizeLabel.Position = UDim2.new(0, 0, 0, 0)
+    sizeLabel.BackgroundTransparency = 1
+    sizeLabel.Text = "Size: 8"
+    sizeLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+    sizeLabel.TextSize = 13
+    sizeLabel.Font = Enum.Font.Gotham
+    sizeLabel.TextXAlignment = Enum.TextXAlignment.Left
+    sizeLabel.Parent = sizeRow
+
+    sizeBox = Instance.new("TextBox")
+    sizeBox.Size = UDim2.new(0.35, 0, 1, 0)
+    sizeBox.Position = UDim2.new(0.32, 0, 0, 0)
+    sizeBox.BackgroundColor3 = Color3.fromRGB(35, 35, 48)
+    sizeBox.BackgroundTransparency = 0
+    sizeBox.BorderSizePixel = 0
+    sizeBox.Text = "8"
+    sizeBox.TextColor3 = Color3.fromRGB(220, 220, 220)
+    sizeBox.TextSize = 13
+    sizeBox.Font = Enum.Font.Gotham
+    sizeBox.TextXAlignment = Enum.TextXAlignment.Center
+    sizeBox.Parent = sizeRow
+    Instance.new("UICorner", sizeBox).CornerRadius = UDim.new(0, 6)
+
+    local applyBtn = Instance.new("TextButton")
+    applyBtn.Size = UDim2.new(0.3, 0, 1, 0)
+    applyBtn.Position = UDim2.new(0.7, 0, 0, 0)
+    applyBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 80)
+    applyBtn.BackgroundTransparency = 0
+    applyBtn.BorderSizePixel = 0
+    applyBtn.Text = "Apply"
+    applyBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    applyBtn.TextSize = 12
+    applyBtn.Font = Enum.Font.GothamBold
+    applyBtn.Parent = sizeRow
+    Instance.new("UICorner", applyBtn).CornerRadius = UDim.new(0, 6)
+
+    applyBtn.MouseButton1Click:Connect(function()
+        local newSize = tonumber(sizeBox.Text)
+        if newSize and newSize > 0 and newSize <= 50 then
+            CONFIG.HITBOX_SIZE = Vector3.new(newSize, newSize, newSize)
+            sizeLabel.Text = "Size: " .. newSize
             if hitboxOn then
                 setHitboxes(true)
             end
+            updateStatusText()
         end
-    })
+    end)
 
-    -- Slider for update speed
-    mainTab:CreateSlider({
-        Name = "Update Speed (seconds)",
-        Range = {0.1, 2},
-        Increment = 0.1,
-        Suffix = "s",
-        CurrentValue = CONFIG.UPDATE_INTERVAL,
-        Flag = "UpdateSpeed",
-        Callback = function(v)
-            CONFIG.UPDATE_INTERVAL = v
+    -- Status Label
+    statusLabel = Instance.new("TextLabel")
+    statusLabel.Size = UDim2.new(0.9, 0, 0, 24)
+    statusLabel.Position = UDim2.new(0.05, 0, 0, 95)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = "🟢 ACTIVE  •  Players: 0  •  Size: 8"
+    statusLabel.TextColor3 = Color3.fromRGB(100, 100, 115)
+    statusLabel.TextSize = 11
+    statusLabel.Font = Enum.Font.Gotham
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Center
+    statusLabel.Parent = contentFrame
+
+    -- Bottom Row
+    local bottomRow = Instance.new("Frame")
+    bottomRow.Size = UDim2.new(0.9, 0, 0, 30)
+    bottomRow.Position = UDim2.new(0.05, 0, 0, 126)
+    bottomRow.BackgroundTransparency = 1
+    bottomRow.Parent = contentFrame
+
+    local hideBtn = Instance.new("TextButton")
+    hideBtn.Size = UDim2.new(0.45, 0, 1, 0)
+    hideBtn.Position = UDim2.new(0, 0, 0, 0)
+    hideBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 48)
+    hideBtn.BackgroundTransparency = 0
+    hideBtn.BorderSizePixel = 0
+    hideBtn.Text = "Hide UI"
+    hideBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
+    hideBtn.TextSize = 11
+    hideBtn.Font = Enum.Font.Gotham
+    hideBtn.Parent = bottomRow
+    Instance.new("UICorner", hideBtn).CornerRadius = UDim.new(0, 6)
+    hideBtn.MouseButton1Click:Connect(function()
+        if sg then sg.Enabled = false end
+        guiVisible = false
+    end)
+
+    local keyLabel = Instance.new("TextLabel")
+    keyLabel.Size = UDim2.new(0.5, 0, 1, 0)
+    keyLabel.Position = UDim2.new(0.5, 0, 0, 0)
+    keyLabel.BackgroundTransparency = 1
+    keyLabel.Text = "END to toggle"
+    keyLabel.TextColor3 = Color3.fromRGB(80, 80, 95)
+    keyLabel.TextSize = 10
+    keyLabel.Font = Enum.Font.Gotham
+    keyLabel.TextXAlignment = Enum.TextXAlignment.Right
+    keyLabel.Parent = bottomRow
+
+    -- Minimize functionality
+    local isMin = false
+    minBtn.MouseButton1Click:Connect(function()
+        isMin = not isMin
+        if isMin then
+            frame:TweenSize(UDim2.new(0, 260, 0, 36), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.2, true)
+            minBtn.Text = "+"
+            contentFrame.Visible = false
+        else
+            frame:TweenSize(UDim2.new(0, 260, 0, 190), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.2, true)
+            minBtn.Text = "−"
+            contentFrame.Visible = true
         end
-    })
+    end)
 
-    -- Status
-    mainTab:CreateParagraph({
-        Title = "Status",
-        Content = "Current Status: " .. (hitboxOn and "🟢 ACTIVE" or "🔴 INACTIVE") .. 
-                  "\nSize: " .. CONFIG.HITBOX_SIZE.X .. "x" .. CONFIG.HITBOX_SIZE.Y .. "x" .. CONFIG.HITBOX_SIZE.Z ..
-                  "\nUpdate Interval: " .. CONFIG.UPDATE_INTERVAL .. "s"
-    })
+    -- Update player count when players join/leave
+    Players.PlayerAdded:Connect(updateStatusText)
+    Players.PlayerRemoving:Connect(updateStatusText)
 
-    print("✅ Rayfield UI Loaded for Hitbox Expander")
+    -- Initial status update
+    updateStatusText()
+
+    print("✅ Hitbox Expander UI Loaded")
+    print("📌 Press END to toggle UI")
 end
+
+-- ─────────────────────────────────────────────
+-- TOGGLE UI FUNCTION
+-- ─────────────────────────────────────────────
+local function toggleUI()
+    if not sg then
+        pcall(createUI)
+        return
+    end
+    guiVisible = not guiVisible
+    sg.Enabled = guiVisible
+    if guiVisible and frame and contentFrame then
+        contentFrame.Visible = true
+        frame:TweenSize(UDim2.new(0, 260, 0, 190), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.2, true)
+    end
+end
+
+-- ─────────────────────────────────────────────
+-- KEYBOARD SHORTCUTS
+-- ─────────────────────────────────────────────
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.End then
+        toggleUI()
+    end
+end)
 
 -- ─────────────────────────────────────────────
 -- AUTO-ENABLE ON LOAD
@@ -232,15 +462,23 @@ if CONFIG.AUTO_ENABLE then
     task.spawn(function()
         task.wait(0.5)
         hitboxActivate()
+        if toggleBtn then
+            toggleBtn.Text = "✅ ENABLED"
+            toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 220, 100)
+        end
     end)
 end
 
 -- ─────────────────────────────────────────────
--- LOAD RAYFIELD UI
+-- LOAD UI
 -- ─────────────────────────────────────────────
 task.spawn(function()
     task.wait(0.5)
-    createRayfieldUI()
+    local success, err = pcall(createUI)
+    if not success then
+        warn("UI Creation Failed: ", err)
+        print("⚠️ UI failed to load, but hitbox is still running")
+    end
 end)
 
 -- ─────────────────────────────────────────────
@@ -251,5 +489,7 @@ print("   🎯 HITBOX EXPANDER LOADED")
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 print("📌 Hitbox auto-enabled on load")
 print("📏 Hitbox Size: " .. CONFIG.HITBOX_SIZE.X .. "x" .. CONFIG.HITBOX_SIZE.Y .. "x" .. CONFIG.HITBOX_SIZE.Z)
-print("🔄 Update Interval: " .. CONFIG.UPDATE_INTERVAL .. "s")
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+print("📌 Press END to open/close UI")
+print("📌 Use the − button to minimize")
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
