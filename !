@@ -1,6 +1,6 @@
 --[[
-    HITBOX EXPANDER - Fully Fixed UI
-    All elements visible, proper sizing, END key to toggle
+    HITBOX EXPANDER - Fully Draggable UI
+    Drag by the title bar, END key to toggle
 ]]
 
 local Players = game:GetService("Players")
@@ -163,6 +163,7 @@ local statusLabel = nil
 local sizeLabel = nil
 local sizeBox = nil
 local contentFrame = nil
+local titleBar = nil
 
 local function updateStatusText()
     if not statusLabel then return end
@@ -172,6 +173,44 @@ local function updateStatusText()
     end
     local status = hitboxOn and "🟢 ACTIVE" or "🔴 INACTIVE"
     statusLabel.Text = status .. "  •  Players: " .. count .. "  •  Size: " .. CONFIG.HITBOX_SIZE.X
+end
+
+-- ─────────────────────────────────────────────
+-- DRAG FUNCTIONALITY
+-- ─────────────────────────────────────────────
+local function makeDraggable(dragFrame, targetFrame)
+    local dragging = false
+    local dragStart = Vector2.new()
+    local startPos = UDim2.new()
+    
+    dragFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+           input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = UIS:GetMouseLocation()
+            startPos = targetFrame.Position
+        end
+    end)
+    
+    dragFrame.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+           input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    
+    UIS.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or 
+                         input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = UIS:GetMouseLocation() - dragStart
+            targetFrame.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
 end
 
 -- ─────────────────────────────────────────────
@@ -193,7 +232,7 @@ local function createUI()
     sg.IgnoreGuiInset = true
     sg.Parent = playerGui
 
-    -- Main Frame - Fixed size
+    -- Main Frame
     frame = Instance.new("Frame")
     frame.Size = UDim2.new(0, 260, 0, 190)
     frame.Position = UDim2.new(0.5, -130, 0.5, -95)
@@ -209,8 +248,8 @@ local function createUI()
     border.Color = Color3.fromRGB(60, 60, 80)
     border.Thickness = 1.2
 
-    -- Title Bar
-    local titleBar = Instance.new("Frame")
+    -- Title Bar (Draggable)
+    titleBar = Instance.new("Frame")
     titleBar.Size = UDim2.new(1, 0, 0, 36)
     titleBar.Position = UDim2.new(0, 0, 0, 0)
     titleBar.BackgroundColor3 = Color3.fromRGB(25, 25, 34)
@@ -218,6 +257,9 @@ local function createUI()
     titleBar.BorderSizePixel = 0
     titleBar.Parent = frame
     Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 12)
+
+    -- Make title bar draggable
+    makeDraggable(titleBar, frame)
 
     -- Title
     local title = Instance.new("TextLabel")
@@ -230,6 +272,18 @@ local function createUI()
     title.Font = Enum.Font.GothamBold
     title.TextXAlignment = Enum.TextXAlignment.Left
     title.Parent = titleBar
+
+    -- Drag handle indicator (subtle)
+    local dragHint = Instance.new("TextLabel")
+    dragHint.Size = UDim2.new(0.15, 0, 1, 0)
+    dragHint.Position = UDim2.new(0.45, 0, 0, 0)
+    dragHint.BackgroundTransparency = 1
+    dragHint.Text = "⠿"
+    dragHint.TextColor3 = Color3.fromRGB(60, 60, 80)
+    dragHint.TextSize = 12
+    dragHint.Font = Enum.Font.Gotham
+    dragHint.TextXAlignment = Enum.TextXAlignment.Center
+    dragHint.Parent = titleBar
 
     -- Minimize Button
     local minBtn = Instance.new("TextButton")
@@ -426,6 +480,7 @@ local function createUI()
     updateStatusText()
 
     print("✅ Hitbox Expander UI Loaded")
+    print("📌 Drag the title bar to move the UI")
     print("📌 Press END to toggle UI")
 end
 
@@ -490,6 +545,7 @@ print("━━━━━━━━━━━━━━━━━━━━━━━━�
 print("📌 Hitbox auto-enabled on load")
 print("📏 Hitbox Size: " .. CONFIG.HITBOX_SIZE.X .. "x" .. CONFIG.HITBOX_SIZE.Y .. "x" .. CONFIG.HITBOX_SIZE.Z)
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+print("🖱️  Drag the title bar to move")
 print("📌 Press END to open/close UI")
 print("📌 Use the − button to minimize")
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
