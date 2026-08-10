@@ -1,0 +1,255 @@
+--[[
+    HITBOX EXPANDER - Rayfield Version (No Keybind)
+    Auto-enables on load, toggle via UI button only
+]]
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+if not player then
+    repeat task.wait() until Players.LocalPlayer
+    player = Players.LocalPlayer
+end
+
+-- ─────────────────────────────────────────────
+-- CONFIGURATION
+-- ─────────────────────────────────────────────
+local CONFIG = {
+    HITBOX_SIZE = Vector3.new(8, 8, 8),
+    DEFAULT_SIZE = Vector3.new(2, 2, 1),
+    UPDATE_INTERVAL = 0.5,
+    AUTO_ENABLE = true,  -- Auto-enable on load
+}
+
+-- ─────────────────────────────────────────────
+-- STATE
+-- ─────────────────────────────────────────────
+local hitboxOn = false
+local lastHitboxApply = 0
+local torsoCache = {}
+local hitboxPlayerHooked = false
+
+-- ─────────────────────────────────────────────
+-- HELPERS
+-- ─────────────────────────────────────────────
+local function getTorso(char)
+    if not char then return nil end
+    return char:FindFirstChild("Torso")
+        or char:FindFirstChild("UpperTorso")
+        or char:FindFirstChild("HumanoidRootPart")
+end
+
+local function getCachedTorso(p2)
+    if torsoCache[p2] and torsoCache[p2].Parent then
+        return torsoCache[p2]
+    end
+    local char = p2.Character
+    if not char then return nil end
+    local t = getTorso(char)
+    torsoCache[p2] = t
+    return t
+end
+
+local function invalidateTorsoCache(p2)
+    torsoCache[p2] = nil
+end
+
+local function applyHitbox(char, enlarged)
+    if not char then return end
+    local torso = getTorso(char)
+    if not torso then return end
+    
+    if enlarged then
+        torso.Size = CONFIG.HITBOX_SIZE
+        torso.Transparency = 1
+        torso.CanCollide = false
+        torso.Material = Enum.Material.Neon
+    else
+        torso.Size = CONFIG.DEFAULT_SIZE
+        torso.Transparency = 0
+        torso.CanCollide = true
+        torso.Material = Enum.Material.Plastic
+    end
+end
+
+-- ─────────────────────────────────────────────
+-- CORE FUNCTIONS
+-- ─────────────────────────────────────────────
+local function setHitboxes(enlarged)
+    for _, other in ipairs(Players:GetPlayers()) do
+        if other ~= player then
+            if enlarged then
+                local torso = getCachedTorso(other)
+                if torso then
+                    torso.Size = CONFIG.HITBOX_SIZE
+                    torso.Transparency = 1
+                    torso.CanCollide = false
+                    torso.Material = Enum.Material.Neon
+                end
+            else
+                applyHitbox(other.Character, false)
+                invalidateTorsoCache(other)
+            end
+        end
+    end
+end
+
+local function hitboxActivate()
+    hitboxOn = true
+    if not hitboxPlayerHooked then
+        hitboxPlayerHooked = true
+        Players.PlayerAdded:Connect(function(p2)
+            if hitboxOn and p2 ~= player then
+                p2.CharacterAdded:Connect(function(char)
+                    task.wait(0.1)
+                    if hitboxOn then applyHitbox(char, true) end
+                end)
+            end
+        end)
+    end
+    print("🔴 Hitbox Expander ENABLED")
+end
+
+local function hitboxDeactivate()
+    hitboxOn = false
+    setHitboxes(false)
+    print("⚪ Hitbox Expander DISABLED")
+end
+
+local function hitboxRender()
+    if not hitboxOn then return end
+    local now = tick()
+    if now - lastHitboxApply < CONFIG.UPDATE_INTERVAL then return end
+    lastHitboxApply = now
+    setHitboxes(true)
+end
+
+-- ─────────────────────────────────────────────
+-- PLAYER CACHE MANAGEMENT
+-- ─────────────────────────────────────────────
+local function hookPlayerCache(p2)
+    p2.CharacterAdded:Connect(function()
+        invalidateTorsoCache(p2)
+    end)
+end
+
+for _, p2 in ipairs(Players:GetPlayers()) do
+    hookPlayerCache(p2)
+end
+Players.PlayerAdded:Connect(hookPlayerCache)
+Players.PlayerRemoving:Connect(function(p2)
+    torsoCache[p2] = nil
+end)
+
+-- ─────────────────────────────────────────────
+-- RUNTIME LOOPS
+-- ─────────────────────────────────────────────
+RunService.RenderStepped:Connect(hitboxRender)
+
+-- ─────────────────────────────────────────────
+-- RAYFIELD UI INTEGRATION
+-- ─────────────────────────────────────────────
+local function createRayfieldUI()
+    local success, Rayfield = pcall(function()
+        return loadstring(game:HttpGet('https://raw.githubusercontent.com/HowDoIGit/Rayfield/main/Module.lua'))()
+    end)
+
+    if not success or not Rayfield then
+        print("⚠️ Rayfield failed to load, but hitbox is still running")
+        return
+    end
+
+    local Window = Rayfield:CreateWindow({
+        Name = "Hitbox Expander",
+        LoadingTitle = "Loading...",
+        LoadingSubtitle = "by CAT Shadow",
+        ToggleUIKeybind = "K",
+        Theme = "Dark",
+        KeySystem = false,
+    })
+
+    local mainTab = Window:CreateTab("🎯 Hitbox", "sword")
+
+    -- Toggle
+    mainTab:CreateToggle({
+        Name = "Enable Hitbox Expander",
+        CurrentValue = CONFIG.AUTO_ENABLE,
+        Flag = "HitboxToggle",
+        Callback = function(v)
+            if v then
+                hitboxActivate()
+            else
+                hitboxDeactivate()
+            end
+        end
+    })
+
+    -- Slider for size
+    mainTab:CreateSlider({
+        Name = "Hitbox Size",
+        Range = {1, 20},
+        Increment = 0.5,
+        Suffix = "Studs",
+        CurrentValue = CONFIG.HITBOX_SIZE.X,
+        Flag = "HitboxSize",
+        Callback = function(v)
+            CONFIG.HITBOX_SIZE = Vector3.new(v, v, v)
+            if hitboxOn then
+                setHitboxes(true)
+            end
+        end
+    })
+
+    -- Slider for update speed
+    mainTab:CreateSlider({
+        Name = "Update Speed (seconds)",
+        Range = {0.1, 2},
+        Increment = 0.1,
+        Suffix = "s",
+        CurrentValue = CONFIG.UPDATE_INTERVAL,
+        Flag = "UpdateSpeed",
+        Callback = function(v)
+            CONFIG.UPDATE_INTERVAL = v
+        end
+    })
+
+    -- Status
+    mainTab:CreateParagraph({
+        Title = "Status",
+        Content = "Current Status: " .. (hitboxOn and "🟢 ACTIVE" or "🔴 INACTIVE") .. 
+                  "\nSize: " .. CONFIG.HITBOX_SIZE.X .. "x" .. CONFIG.HITBOX_SIZE.Y .. "x" .. CONFIG.HITBOX_SIZE.Z ..
+                  "\nUpdate Interval: " .. CONFIG.UPDATE_INTERVAL .. "s"
+    })
+
+    print("✅ Rayfield UI Loaded for Hitbox Expander")
+end
+
+-- ─────────────────────────────────────────────
+-- AUTO-ENABLE ON LOAD
+-- ─────────────────────────────────────────────
+if CONFIG.AUTO_ENABLE then
+    task.spawn(function()
+        task.wait(0.5)
+        hitboxActivate()
+    end)
+end
+
+-- ─────────────────────────────────────────────
+-- LOAD RAYFIELD UI
+-- ─────────────────────────────────────────────
+task.spawn(function()
+    task.wait(0.5)
+    createRayfieldUI()
+end)
+
+-- ─────────────────────────────────────────────
+-- STATUS MESSAGE
+-- ─────────────────────────────────────────────
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+print("   🎯 HITBOX EXPANDER LOADED")
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+print("📌 Hitbox auto-enabled on load")
+print("📏 Hitbox Size: " .. CONFIG.HITBOX_SIZE.X .. "x" .. CONFIG.HITBOX_SIZE.Y .. "x" .. CONFIG.HITBOX_SIZE.Z)
+print("🔄 Update Interval: " .. CONFIG.UPDATE_INTERVAL .. "s")
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
